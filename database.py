@@ -191,11 +191,12 @@ class Database:
         return response.data[0] if response.data else None
 
     def get_bank_account_by_name_sync(self, telegram_id: int, bank_name: str) -> Optional[Dict]:
-        """Get a bank account by name (case-insensitive)"""
+        """Get an active bank account by name (case-insensitive)"""
         response = (
             self.client.table("bank_accounts")
             .select("*")
             .eq("telegram_id", telegram_id)
+            .eq("is_active", True)
             .ilike("bank_name", bank_name)
             .execute()
         )
@@ -246,11 +247,12 @@ class Database:
         return response.data[0] if response.data else None
 
     def get_credit_card_by_name_sync(self, telegram_id: int, card_name: str) -> Optional[Dict]:
-        """Get a credit card by name (case-insensitive)"""
+        """Get an active credit card by name (case-insensitive)"""
         response = (
             self.client.table("credit_cards")
             .select("*")
             .eq("telegram_id", telegram_id)
+            .eq("is_active", True)
             .ilike("card_name", card_name)
             .execute()
         )
@@ -294,11 +296,12 @@ class Database:
         return response.data
 
     def get_goal_by_name_sync(self, telegram_id: int, name: str) -> Optional[Dict]:
-        """Get a goal by name (case-insensitive)"""
+        """Get an active goal by name (case-insensitive)"""
         response = (
             self.client.table("savings_goals")
             .select("*")
             .eq("telegram_id", telegram_id)
+            .eq("is_active", True)
             .ilike("name", name)
             .execute()
         )
