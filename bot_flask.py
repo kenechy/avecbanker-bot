@@ -1464,71 +1464,86 @@ def handle_message(chat_id, user_id, text):
         handle_paid_goal(chat_id, user_id, goal_name, amount)
         return
 
-    # Original expense parsing: <description> <amount> <category>
+    # Expense parsing: <description> <amount> <bank_or_category>
     if len(parts) >= 3:
-        category = parts[-1]
+        last_word = parts[-1]
 
-        # Check if valid category
-        if category in ["needs", "wants", "savings"]:
-            try:
-                amount = float(parts[-2].replace(",", "").replace("₱", ""))
-                description = " ".join(parts[:-2])
+        try:
+            amount = float(parts[-2].replace(",", "").replace("₱", ""))
+            description = " ".join(parts[:-2])
 
-                # Add the expense
-                db.add_expense_sync(user_id, description, amount, category)
-                logger.info(f"Added expense: {description} {amount} {category} for user {user_id}")
+            # First check if last word is a bank account
+            account = db.get_bank_account_by_name_sync(user_id, last_word)
+            if account:
+                # Deduct from bank account
+                if account["current_balance"] >= amount:
+                    new_balance = account["current_balance"] - amount
+                    db.update_bank_balance_sync(account["id"], new_balance)
+                    db.add_transaction_sync(user_id, "bank", account["id"], "expense", amount, description)
 
-                # Try to get budget status for response
-                try:
-                    user = db.get_user_sync(user_id)
-                    now = datetime.now()
-                    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-                    expenses = db.get_expenses_sync(user_id, month_start)
-
-                    income = user.get("monthly_income", 0) if user else 0
-                    bills_list = db.get_bills_sync(user_id)
-                    total_bills = sum(b["amount"] for b in bills_list)
-                    available = income - total_bills
-
-                    if category == "needs":
-                        budget = available * (user.get("needs_pct", 40) if user else 40) / 100
-                        spent = sum(e["amount"] for e in expenses if e["category"] == "needs")
-                    elif category == "wants":
-                        budget = available * (user.get("wants_pct", 20) if user else 20) / 100
-                        spent = sum(e["amount"] for e in expenses if e["category"] == "wants")
-                    else:
-                        budget = available * (user.get("savings_pct", 15) if user else 15) / 100
-                        spent = sum(e["amount"] for e in expenses if e["category"] == "savings")
-
-                    remaining = budget - spent
-                    pct = (spent / budget * 100) if budget > 0 else 0
-
-                    emoji = {"needs": "🍽️", "wants": "🎮", "savings": "💰"}[category]
-
-                    response = f"✅ {emoji} {description.title()}: {format_currency(amount)}\n"
-                    response += f"{get_progress_bar(pct)} {pct:.0f}%\n"
-                    response += f"Remaining: {format_currency(remaining)}"
-
-                    if pct >= 90:
-                        response += "\n🚨 *Budget almost gone!*"
+                    response = f"✅ {description.title()}: {format_currency(amount)}\n"
+                    response += f"💳 *{account['bank_name']}*: {format_currency(new_balance)}"
 
                     send_message(chat_id, response)
-                except Exception as e:
-                    # Budget calculation failed, but expense was added
-                    logger.error(f"Budget calc error: {e}")
-                    emoji = {"needs": "🍽️", "wants": "🎮", "savings": "💰"}[category]
-                    send_message(chat_id, f"✅ {emoji} {description.title()}: {format_currency(amount)} logged!")
-
+                else:
+                    send_message(
+                        chat_id,
+                        f"❌ Insufficient balance in {account['bank_name']}\n"
+                        f"Current: {format_currency(account['current_balance'])}"
+                    )
                 return
 
-            except ValueError as e:
-                logger.error(f"Expense parse error: {e} for text: {text}")
-                # Fall through to help message
+            # Check if it's a category (old budget tracking)
+            if last_word in ["needs", "wants", "savings"]:
+                category = last_word
+                db.add_expense_sync(user_id, description, amount, category)
+                emoji = {"needs": "🍽️", "wants": "🎮", "savings": "💰"}[category]
+                send_message(chat_id, f"✅ {emoji} {description.title()}: {format_currency(amount)} logged!")
+                return
+
+        except ValueError as e:
+            logger.error(f"Expense parse error: {e} for text: {text}")
+            # Fall through to help message
+
+    # Simple 2-word expense: <description> <amount> - deducts from first allowance/spending account
+    if len(parts) == 2:
+        try:
+            description = parts[0]
+            amount = float(parts[1].replace(",", "").replace("₱", ""))
+
+            # Find default spending account (allowance or spending purpose)
+            accounts = db.get_bank_accounts_sync(user_id)
+            default_account = None
+            for a in accounts:
+                if a.get("purpose") in ["allowance", "spending"]:
+                    default_account = a
+                    break
+
+            if default_account:
+                if default_account["current_balance"] >= amount:
+                    new_balance = default_account["current_balance"] - amount
+                    db.update_bank_balance_sync(default_account["id"], new_balance)
+                    db.add_transaction_sync(user_id, "bank", default_account["id"], "expense", amount, description)
+
+                    response = f"✅ {description.title()}: {format_currency(amount)}\n"
+                    response += f"💳 *{default_account['bank_name']}*: {format_currency(new_balance)}"
+
+                    send_message(chat_id, response)
+                else:
+                    send_message(
+                        chat_id,
+                        f"❌ Insufficient balance in {default_account['bank_name']}\n"
+                        f"Current: {format_currency(default_account['current_balance'])}"
+                    )
+                return
+        except ValueError:
+            pass
 
     send_message(
         chat_id,
         "💡 *Quick commands:*\n"
-        "• Expense: `lunch 150 needs`\n"
+        "• Expense from bank: `lunch 150 gcash`\n"
+        "• Simple expense: `lunch 150` (uses allowance account)\n"
         "• Credit card: `cc 500 shoes`\n"
         "• Deposit: `deposit 5000 bpi`\n"
         "• Withdraw: `withdraw 1000 unionbank`\n"
