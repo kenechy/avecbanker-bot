@@ -1,14 +1,13 @@
 """
 AvecBanker Bot - PythonAnywhere Version
-Uses Flask webhook with direct Bot API calls
+Uses Flask webhook with synchronous HTTP requests
 """
 
 import os
 import logging
+import requests
 from datetime import datetime
 from flask import Flask, request, jsonify
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot
-import asyncio
 from database import Database
 
 # Logging
@@ -27,12 +26,55 @@ flask_app = Flask(__name__)
 # Bot token
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
-
-# Create bot instance
-bot = Bot(token=BOT_TOKEN)
+API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
 # Simple user state storage (for setup wizard)
 user_states = {}
+
+
+# ============ TELEGRAM API HELPERS ============
+
+def send_message(chat_id, text, parse_mode="Markdown", reply_markup=None):
+    """Send a message via Telegram API"""
+    payload = {
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": parse_mode
+    }
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+
+    try:
+        response = requests.post(f"{API_URL}/sendMessage", json=payload, timeout=10)
+        return response.json()
+    except Exception as e:
+        logger.error(f"Send message error: {e}")
+        return None
+
+
+def edit_message(chat_id, message_id, text, parse_mode="Markdown"):
+    """Edit a message via Telegram API"""
+    payload = {
+        "chat_id": chat_id,
+        "message_id": message_id,
+        "text": text,
+        "parse_mode": parse_mode
+    }
+
+    try:
+        response = requests.post(f"{API_URL}/editMessageText", json=payload, timeout=10)
+        return response.json()
+    except Exception as e:
+        logger.error(f"Edit message error: {e}")
+        return None
+
+
+def answer_callback(callback_id):
+    """Answer callback query"""
+    try:
+        requests.post(f"{API_URL}/answerCallbackQuery", json={"callback_query_id": callback_id}, timeout=5)
+    except Exception as e:
+        logger.error(f"Answer callback error: {e}")
 
 
 # ============ HELPER FUNCTIONS ============
@@ -62,14 +104,13 @@ def get_or_create_user(telegram_id: int, username: str = None) -> dict:
     return user
 
 
-# ============ ASYNC HANDLERS ============
+# ============ COMMAND HANDLERS ============
 
-async def handle_start(chat_id: int, user_id: int, first_name: str, username: str):
+def handle_start(chat_id, user_id, first_name, username):
     """Welcome message"""
     get_or_create_user(user_id, username)
 
-    welcome_msg = f"""
-🏦 *Welcome to AvecBanker Bot!*
+    welcome_msg = f"""🏦 *Welcome to AvecBanker Bot!*
 
 Hello {first_name}! I'm your personal budget assistant.
 
@@ -85,32 +126,32 @@ Hello {first_name}! I'm your personal budget assistant.
 /summary - Weekly/monthly summary
 /help - Full command list
 
-Let's take control of your finances! 💪
-"""
-    await bot.send_message(chat_id=chat_id, text=welcome_msg, parse_mode="Markdown")
+Let's take control of your finances! 💪"""
+
+    send_message(chat_id, welcome_msg)
 
 
-async def handle_setup(chat_id: int, user_id: int, username: str):
+def handle_setup(chat_id, user_id, username):
     """Interactive budget setup"""
     get_or_create_user(user_id, username)
 
-    keyboard = [
-        [InlineKeyboardButton("💰 Set Income", callback_data="setup_income")],
-        [InlineKeyboardButton("📋 Set Fixed Bills", callback_data="setup_bills")],
-        [InlineKeyboardButton("📊 Set Budget Split", callback_data="setup_budget")],
-        [InlineKeyboardButton("✅ View Current Setup", callback_data="setup_view")],
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    reply_markup = {
+        "inline_keyboard": [
+            [{"text": "💰 Set Income", "callback_data": "setup_income"}],
+            [{"text": "📋 Set Fixed Bills", "callback_data": "setup_bills"}],
+            [{"text": "📊 Set Budget Split", "callback_data": "setup_budget"}],
+            [{"text": "✅ View Current Setup", "callback_data": "setup_view"}],
+        ]
+    }
 
-    await bot.send_message(
-        chat_id=chat_id,
-        text="⚙️ *Budget Setup*\n\nWhat would you like to configure?",
-        reply_markup=reply_markup,
-        parse_mode="Markdown"
+    send_message(
+        chat_id,
+        "⚙️ *Budget Setup*\n\nWhat would you like to configure?",
+        reply_markup=reply_markup
     )
 
 
-async def handle_status(chat_id: int, user_id: int, username: str):
+def handle_status(chat_id, user_id, username):
     """Show current budget status"""
     user = get_or_create_user(user_id, username)
 
@@ -140,8 +181,7 @@ async def handle_status(chat_id: int, user_id: int, username: str):
     needs_daily = (needs_budget - needs_spent) / days_remaining
     wants_daily = (wants_budget - wants_spent) / days_remaining
 
-    status_msg = f"""
-📊 *Budget Status - {now.strftime('%B %Y')}*
+    status_msg = f"""📊 *Budget Status - {now.strftime('%B %Y')}*
 
 💰 *Income:* {format_currency(income)}
 📋 *Fixed Bills:* {format_currency(total_bills)}
@@ -162,23 +202,22 @@ Spent: {format_currency(wants_spent)} / {format_currency(wants_budget)}
 💰 *SAVINGS TARGET:* {format_currency(savings_budget)}
 
 ━━━━━━━━━━━━━━━━━━━━
-📅 {days_remaining} days remaining this month
-"""
+📅 {days_remaining} days remaining this month"""
 
     if needs_pct >= 90:
         status_msg += "\n🚨 *WARNING: Needs budget almost depleted!*"
     if wants_pct >= 90:
         status_msg += "\n🚨 *WARNING: Wants budget almost depleted!*"
 
-    await bot.send_message(chat_id=chat_id, text=status_msg, parse_mode="Markdown")
+    send_message(chat_id, status_msg)
 
 
-async def handle_history(chat_id: int, user_id: int):
+def handle_history(chat_id, user_id):
     """Show recent expenses"""
     expenses = db.get_recent_expenses_sync(user_id, limit=10)
 
     if not expenses:
-        await bot.send_message(chat_id=chat_id, text="No expenses recorded yet!")
+        send_message(chat_id, "No expenses recorded yet!")
         return
 
     history_msg = "📜 *Recent Expenses*\n\n"
@@ -189,10 +228,10 @@ async def handle_history(chat_id: int, user_id: int):
         emoji = category_emoji.get(e["category"], "📝")
         history_msg += f"{date} {emoji} {e['description'].title()}: {format_currency(e['amount'])}\n"
 
-    await bot.send_message(chat_id=chat_id, text=history_msg, parse_mode="Markdown")
+    send_message(chat_id, history_msg)
 
 
-async def handle_summary(chat_id: int, user_id: int):
+def handle_summary(chat_id, user_id):
     """Monthly summary"""
     now = datetime.now()
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -217,13 +256,12 @@ async def handle_summary(chat_id: int, user_id: int):
 
     summary_msg += f"\n💸 *Total Spent:* {format_currency(total_spent)}"
 
-    await bot.send_message(chat_id=chat_id, text=summary_msg, parse_mode="Markdown")
+    send_message(chat_id, summary_msg)
 
 
-async def handle_help(chat_id: int):
+def handle_help(chat_id):
     """Show all commands"""
-    help_text = """
-📖 *AvecBanker Bot Commands*
+    help_text = """📖 *AvecBanker Bot Commands*
 
 *Setup:*
 /start - Welcome & quick start
@@ -240,58 +278,52 @@ async def handle_help(chat_id: int):
 *Categories:*
 • `needs` - Food, transport, bills
 • `wants` - Entertainment, shopping
-• `savings` - Money saved
-"""
-    await bot.send_message(chat_id=chat_id, text=help_text, parse_mode="Markdown")
+• `savings` - Money saved"""
+
+    send_message(chat_id, help_text)
 
 
-async def handle_callback(callback_query_id: str, chat_id: int, message_id: int, user_id: int, data: str):
+def handle_callback(callback_id, chat_id, message_id, user_id, data):
     """Handle callback button presses"""
-    await bot.answer_callback_query(callback_query_id)
+    answer_callback(callback_id)
 
     if data == "setup_income":
         user_states[user_id] = "income"
-        await bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text="💰 *Set Your Monthly Income*\n\n"
-                 "Enter your total monthly income in PHP:\n"
-                 "Example: `83000`\n\n"
-                 "Or if you earn in USD, type like: `$7/hr 176hrs`",
-            parse_mode="Markdown"
+        edit_message(
+            chat_id, message_id,
+            "💰 *Set Your Monthly Income*\n\n"
+            "Enter your total monthly income in PHP:\n"
+            "Example: `83000`\n\n"
+            "Or if you earn in USD, type like: `$7/hr 176hrs`"
         )
 
     elif data == "setup_bills":
         user_states[user_id] = "bills"
-        await bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text="📋 *Set Your Fixed Monthly Bills*\n\n"
-                 "Enter each bill on a new line:\n"
-                 "`bill_name amount due_date`\n\n"
-                 "Example:\n"
-                 "```\n"
-                 "motorcycle 6500 7\n"
-                 "insurance 2500 30\n"
-                 "power 2000 28\n"
-                 "```",
-            parse_mode="Markdown"
+        edit_message(
+            chat_id, message_id,
+            "📋 *Set Your Fixed Monthly Bills*\n\n"
+            "Enter each bill on a new line:\n"
+            "`bill_name amount due_date`\n\n"
+            "Example:\n"
+            "```\n"
+            "motorcycle 6500 7\n"
+            "insurance 2500 30\n"
+            "power 2000 28\n"
+            "```"
         )
 
     elif data == "setup_budget":
         user_states[user_id] = "budget"
-        await bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text="📊 *Set Your Budget Split*\n\n"
-                 "Enter percentages for each category (must total 100):\n"
-                 "`needs wants savings extra`\n\n"
-                 "Example: `40 20 15 25`\n\n"
-                 "• Needs = Food, transport, essentials\n"
-                 "• Wants = Entertainment, shopping\n"
-                 "• Savings = Emergency fund\n"
-                 "• Extra = Debt payoff / goals",
-            parse_mode="Markdown"
+        edit_message(
+            chat_id, message_id,
+            "📊 *Set Your Budget Split*\n\n"
+            "Enter percentages for each category (must total 100):\n"
+            "`needs wants savings extra`\n\n"
+            "Example: `40 20 15 25`\n\n"
+            "• Needs = Food, transport, essentials\n"
+            "• Wants = Entertainment, shopping\n"
+            "• Savings = Emergency fund\n"
+            "• Extra = Debt payoff / goals"
         )
 
     elif data == "setup_view":
@@ -300,23 +332,21 @@ async def handle_callback(callback_query_id: str, chat_id: int, message_id: int,
 
         bills_text = "\n".join([f"  • {b['name']}: {format_currency(b['amount'])} (due: {b['due_date']}th)" for b in bills]) or "  None set"
 
-        await bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text=f"📋 *Your Current Setup*\n\n"
-                 f"💰 *Monthly Income:* {format_currency(user_data.get('monthly_income', 0) if user_data else 0)}\n\n"
-                 f"📋 *Fixed Bills:*\n{bills_text}\n\n"
-                 f"📊 *Budget Split:*\n"
-                 f"  • Needs: {user_data.get('needs_pct', 40) if user_data else 40}%\n"
-                 f"  • Wants: {user_data.get('wants_pct', 20) if user_data else 20}%\n"
-                 f"  • Savings: {user_data.get('savings_pct', 15) if user_data else 15}%\n"
-                 f"  • Extra: {user_data.get('extra_pct', 25) if user_data else 25}%\n\n"
-                 f"Use /setup to modify these settings.",
-            parse_mode="Markdown"
+        edit_message(
+            chat_id, message_id,
+            f"📋 *Your Current Setup*\n\n"
+            f"💰 *Monthly Income:* {format_currency(user_data.get('monthly_income', 0) if user_data else 0)}\n\n"
+            f"📋 *Fixed Bills:*\n{bills_text}\n\n"
+            f"📊 *Budget Split:*\n"
+            f"  • Needs: {user_data.get('needs_pct', 40) if user_data else 40}%\n"
+            f"  • Wants: {user_data.get('wants_pct', 20) if user_data else 20}%\n"
+            f"  • Savings: {user_data.get('savings_pct', 15) if user_data else 15}%\n"
+            f"  • Extra: {user_data.get('extra_pct', 25) if user_data else 25}%\n\n"
+            f"Use /setup to modify these settings."
         )
 
 
-async def handle_message(chat_id: int, user_id: int, text: str):
+def handle_message(chat_id, user_id, text):
     """Handle text messages"""
     text = text.strip().lower()
 
@@ -336,14 +366,10 @@ async def handle_message(chat_id: int, user_id: int, text: str):
             db.update_user_sync(user_id, {"monthly_income": income})
             user_states.pop(user_id, None)
 
-            await bot.send_message(
-                chat_id=chat_id,
-                text=f"✅ Monthly income set to {format_currency(income)}",
-                parse_mode="Markdown"
-            )
+            send_message(chat_id, f"✅ Monthly income set to {format_currency(income)}")
             return
         except:
-            await bot.send_message(chat_id=chat_id, text="❌ Invalid format. Try again.")
+            send_message(chat_id, "❌ Invalid format. Try again.")
             return
 
     elif state == "bills":
@@ -360,10 +386,10 @@ async def handle_message(chat_id: int, user_id: int, text: str):
                     count += 1
 
             user_states.pop(user_id, None)
-            await bot.send_message(chat_id=chat_id, text=f"✅ Added {count} bill(s)!")
+            send_message(chat_id, f"✅ Added {count} bill(s)!")
             return
         except:
-            await bot.send_message(chat_id=chat_id, text="❌ Invalid format. Try again.")
+            send_message(chat_id, "❌ Invalid format. Try again.")
             return
 
     elif state == "budget":
@@ -379,12 +405,12 @@ async def handle_message(chat_id: int, user_id: int, text: str):
                         "extra_pct": extra
                     })
                     user_states.pop(user_id, None)
-                    await bot.send_message(chat_id=chat_id, text="✅ Budget split updated!")
+                    send_message(chat_id, "✅ Budget split updated!")
                     return
-            await bot.send_message(chat_id=chat_id, text="❌ Must add up to 100%")
+            send_message(chat_id, "❌ Must add up to 100%")
             return
         except:
-            await bot.send_message(chat_id=chat_id, text="❌ Invalid format.")
+            send_message(chat_id, "❌ Invalid format.")
             return
 
     # Try to parse as expense
@@ -431,15 +457,14 @@ async def handle_message(chat_id: int, user_id: int, text: str):
                 if pct >= 90:
                     response += "\n🚨 *Budget almost gone!*"
 
-                await bot.send_message(chat_id=chat_id, text=response, parse_mode="Markdown")
+                send_message(chat_id, response)
                 return
     except:
         pass
 
-    await bot.send_message(
-        chat_id=chat_id,
-        text="💡 To log expense, type:\n`description amount category`\n\nExample: `lunch 150 needs`",
-        parse_mode="Markdown"
+    send_message(
+        chat_id,
+        "💡 To log expense, type:\n`description amount category`\n\nExample: `lunch 150 needs`"
     )
 
 
@@ -462,19 +487,19 @@ def webhook():
                 text = message["text"]
 
                 if text == "/start":
-                    asyncio.run(handle_start(chat_id, user_id, first_name, username))
+                    handle_start(chat_id, user_id, first_name, username)
                 elif text == "/setup":
-                    asyncio.run(handle_setup(chat_id, user_id, username))
+                    handle_setup(chat_id, user_id, username)
                 elif text == "/status":
-                    asyncio.run(handle_status(chat_id, user_id, username))
+                    handle_status(chat_id, user_id, username)
                 elif text == "/history":
-                    asyncio.run(handle_history(chat_id, user_id))
+                    handle_history(chat_id, user_id)
                 elif text == "/summary":
-                    asyncio.run(handle_summary(chat_id, user_id))
+                    handle_summary(chat_id, user_id)
                 elif text == "/help":
-                    asyncio.run(handle_help(chat_id))
+                    handle_help(chat_id)
                 elif not text.startswith("/"):
-                    asyncio.run(handle_message(chat_id, user_id, text))
+                    handle_message(chat_id, user_id, text)
 
         elif "callback_query" in data:
             callback = data["callback_query"]
@@ -484,7 +509,7 @@ def webhook():
             user_id = callback["from"]["id"]
             callback_data = callback["data"]
 
-            asyncio.run(handle_callback(callback_id, chat_id, message_id, user_id, callback_data))
+            handle_callback(callback_id, chat_id, message_id, user_id, callback_data)
 
         return jsonify({"status": "ok"})
 
@@ -502,9 +527,15 @@ def index():
 @flask_app.route("/set_webhook")
 def set_webhook():
     """Set the webhook URL"""
-    webhook_url = WEBHOOK_URL
-    asyncio.run(bot.set_webhook(url=webhook_url))
-    return f"Webhook set to {webhook_url}"
+    try:
+        response = requests.post(
+            f"{API_URL}/setWebhook",
+            json={"url": WEBHOOK_URL},
+            timeout=10
+        )
+        return f"Webhook set to {WEBHOOK_URL}\n\nResponse: {response.json()}"
+    except Exception as e:
+        return f"Error setting webhook: {e}"
 
 
 # For local testing
