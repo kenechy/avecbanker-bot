@@ -7,6 +7,7 @@ import os
 from datetime import datetime
 from typing import Optional, List, Dict
 from supabase import create_client, Client
+from dateutil import parser as date_parser
 
 
 class Database:
@@ -78,7 +79,7 @@ class Database:
         # Parse dates
         for exp in response.data:
             if isinstance(exp.get("created_at"), str):
-                exp["created_at"] = datetime.fromisoformat(exp["created_at"].replace("Z", "+00:00"))
+                exp["created_at"] = date_parser.parse(exp["created_at"])
 
         return response.data
 
@@ -96,7 +97,7 @@ class Database:
         # Parse dates
         for exp in response.data:
             if isinstance(exp.get("created_at"), str):
-                exp["created_at"] = datetime.fromisoformat(exp["created_at"].replace("Z", "+00:00"))
+                exp["created_at"] = date_parser.parse(exp["created_at"])
 
         return response.data
 
