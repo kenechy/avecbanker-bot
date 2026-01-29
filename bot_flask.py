@@ -179,8 +179,9 @@ def handle_status(chat_id, user_id, username):
     days_in_month = 30
     days_remaining = max(days_in_month - now.day, 1)
 
-    needs_daily = (needs_budget - needs_spent) / days_remaining
-    wants_daily = (wants_budget - wants_spent) / days_remaining
+    # Show remaining budget, not confusing "daily limit"
+    needs_remaining = needs_budget - needs_spent
+    wants_remaining = wants_budget - wants_spent
 
     status_msg = f"""📊 *Budget Status - {now.strftime('%B %Y')}*
 
@@ -193,12 +194,12 @@ def handle_status(chat_id, user_id, username):
 🍽️ *NEEDS*
 {get_progress_bar(needs_pct)} {needs_pct:.0f}%
 Spent: {format_currency(needs_spent)} / {format_currency(needs_budget)}
-📅 Daily limit: {format_currency(needs_daily)}
+Remaining: {format_currency(needs_remaining)}
 
 🎮 *WANTS*
 {get_progress_bar(wants_pct)} {wants_pct:.0f}%
 Spent: {format_currency(wants_spent)} / {format_currency(wants_budget)}
-📅 Daily limit: {format_currency(wants_daily)}
+Remaining: {format_currency(wants_remaining)}
 
 💰 *SAVINGS TARGET:* {format_currency(savings_budget)}
 
@@ -772,40 +773,39 @@ def handle_dashboard(chat_id, user_id, username):
 
     now = datetime.now()
 
-    msg = "┌─────────────────────────────────┐\n"
-    msg += "│ 💰 *FINANCIAL DASHBOARD*        │\n"
-    msg += "├─────────────────────────────────┤\n"
+    msg = "💰 *FINANCIAL DASHBOARD*\n"
+    msg += "━━━━━━━━━━━━━━━━━━━━\n\n"
 
     # Bank Accounts Section
-    msg += "│ 🏦 *BANK ACCOUNTS*              │\n"
+    msg += "🏦 *BANK ACCOUNTS*\n"
     if accounts:
         total_bank = 0
         for a in accounts:
             balance = a.get("current_balance", 0)
             total_bank += balance
             purpose = f" ({a.get('purpose', '')})" if a.get('purpose') else ""
-            msg += f"│   {a['bank_name']}: {format_currency(balance)}{purpose}\n"
-        msg += f"│   *Total:* {format_currency(total_bank)}\n"
+            msg += f"  {a['bank_name']}: {format_currency(balance)}{purpose}\n"
+        msg += f"  *Total:* {format_currency(total_bank)}\n"
     else:
-        msg += "│   No accounts set up\n"
+        msg += "  No accounts set up\n"
 
-    msg += "├─────────────────────────────────┤\n"
+    msg += "\n"
 
     # Credit Cards Section
-    msg += "│ 💳 *CREDIT CARDS*               │\n"
+    msg += "💳 *CREDIT CARDS*\n"
     if cards:
         for c in cards:
             balance = c.get("current_balance", 0)
             limit = c.get("credit_limit", 0)
             util = int(balance / limit * 100) if limit > 0 else 0
-            msg += f"│   {c['card_name']}: {format_currency(balance)} / {format_currency(limit)} ({util}%)\n"
+            msg += f"  {c['card_name']}: {format_currency(balance)} / {format_currency(limit)} ({util}%)\n"
     else:
-        msg += "│   No cards set up\n"
+        msg += "  No cards set up\n"
 
-    msg += "├─────────────────────────────────┤\n"
+    msg += "\n"
 
     # Pay Period Section
-    msg += "│ 📅 *PAY PERIOD*                 │\n"
+    msg += "📅 *PAY PERIOD*\n"
     if current_period:
         try:
             start = datetime.strptime(str(current_period['period_start']), "%Y-%m-%d")
@@ -813,18 +813,18 @@ def handle_dashboard(chat_id, user_id, username):
             total_days = (end - start).days
             current_day = (now - start).days + 1
             days_left = max((end - now).days, 0)
-            msg += f"│   Day {current_day} of {total_days} | {days_left} days left\n"
+            msg += f"  Day {current_day} of {total_days} | {days_left} days left\n"
 
             income = current_period.get("actual_income") or current_period.get("expected_income") or 0
-            if income > 0 and days_left > 0:
+            if income > 0 and total_days > 0:
                 daily = income / total_days
-                msg += f"│   Daily limit: {format_currency(daily)}\n"
+                msg += f"  Budget: {format_currency(daily)}/day\n"
         except Exception:
-            msg += "│   Period active\n"
+            msg += "  Period active\n"
     else:
-        msg += "│   No active period. Use /payday\n"
+        msg += "  No active period. Use /payday\n"
 
-    msg += "├─────────────────────────────────┤\n"
+    msg += "\n"
 
     # Payoff Goals Section
     payoff_goals = [g for g in goals if g.get("goal_type") == "payoff"]
@@ -834,16 +834,16 @@ def handle_dashboard(chat_id, user_id, username):
             target = g.get("target_amount", 0)
             progress = int(current / target * 100) if target > 0 else 0
             bars = "█" * (progress // 10) + "░" * (10 - progress // 10)
-            msg += f"│ 🏍️ *{g['name'].upper()} PAYOFF*\n"
-            msg += f"│   {bars} {progress}%\n"
-            msg += f"│   {format_currency(current)} / {format_currency(target)}\n"
+            msg += f"🏍️ *{g['name'].upper()} PAYOFF*\n"
+            msg += f"  {bars} {progress}%\n"
+            msg += f"  {format_currency(current)} / {format_currency(target)}\n"
             if g.get("target_date"):
-                msg += f"│   Target: {g['target_date']}\n"
+                msg += f"  Target: {g['target_date']}\n"
 
-        msg += "├─────────────────────────────────┤\n"
+        msg += "\n"
 
     # Upcoming Bills Section
-    msg += "│ 📋 *UPCOMING BILLS*             │\n"
+    msg += "📋 *UPCOMING BILLS*\n"
     if bills:
         today = now.day
         for b in sorted(bills, key=lambda x: x.get("due_date", 31)):
@@ -855,11 +855,9 @@ def handle_dashboard(chat_id, user_id, username):
                 indicator = "🟡"
             else:
                 indicator = "🟢"
-            msg += f"│   {indicator} {b['name']} ({due}th) - {days_until} days\n"
+            msg += f"  {indicator} {b['name']} ({due}th) - {days_until} days\n"
     else:
-        msg += "│   No bills set up\n"
-
-    msg += "└─────────────────────────────────┘"
+        msg += "  No bills set up\n"
 
     send_message(chat_id, msg)
 
