@@ -1,6 +1,7 @@
-# Environment
+# Environment & Credentials
 .env
 .env.local
+wsgi.py
 
 # Python
 __pycache__/
