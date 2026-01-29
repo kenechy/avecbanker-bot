@@ -1,294 +1,376 @@
-# 🏦 AvecBanker Bot
+# AvecBanker Bot
 
-A personal budget tracking Telegram bot with multi-user support, expense logging, payment reminders, and weekly summaries.
+A personal budget tracking Telegram bot with multi-bank accounts, credit card tracking, goal management, bi-weekly pay periods, and expense logging.
 
 ## Features
 
-- 💬 **Quick expense logging** - Just type "lunch 150 needs"
-- 📊 **Budget tracking** - Needs, Wants, Savings categories
-- 🔔 **Payment reminders** - Auto-reminders 2 days before bills
-- 📈 **Weekly summaries** - Every Sunday at 9 AM
-- 👥 **Multi-user** - You and your GF can both use it!
-- ⚠️ **Overspending alerts** - Warns when budget is running low
+- **Quick expense logging** - Just type `lunch 150 needs`
+- **Multi-bank tracking** - Track UnionBank, BPI, Maya, GCash, etc.
+- **Credit card management** - Track balances and utilization
+- **Goal tracking** - Payoff goals, savings, purchases with priorities
+- **Pay period support** - Bi-weekly salary cycle tracking
+- **Bill reminders** - See upcoming bills with due dates
+- **Dashboard** - Full financial overview at a glance
+- **Multi-user** - Each user has separate tracking
 
 ---
 
-## 🚀 Setup Guide
+## Command Reference
 
-### Step 1: Create Telegram Bot (Done ✅)
-
-You already have your bot at `t.me/avecbanker_bot`
-
-⚠️ **IMPORTANT**: Regenerate your token since you shared it publicly!
-1. Message @BotFather
-2. Send `/revoke`
-3. Select your bot
-4. Get new token
-
----
-
-### Step 2: Set Up Supabase Database
-
-#### 2.1 Go to your Supabase project
-
-Open [supabase.com](https://supabase.com) and go to your project.
-
-#### 2.2 Create the tables
-
-Go to **SQL Editor** (left sidebar) and run this SQL:
-
-```sql
--- ============================================
--- AVECBANKER BOT DATABASE SCHEMA
--- Run this in Supabase SQL Editor
--- ============================================
-
--- Users table
-CREATE TABLE IF NOT EXISTS users (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    telegram_id BIGINT UNIQUE NOT NULL,
-    username TEXT,
-    monthly_income DECIMAL(12,2) DEFAULT 0,
-    needs_pct INTEGER DEFAULT 40,
-    wants_pct INTEGER DEFAULT 20,
-    savings_pct INTEGER DEFAULT 15,
-    extra_pct INTEGER DEFAULT 25,
-    reminders_enabled BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Expenses table
-CREATE TABLE IF NOT EXISTS expenses (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    telegram_id BIGINT NOT NULL REFERENCES users(telegram_id) ON DELETE CASCADE,
-    description TEXT NOT NULL,
-    amount DECIMAL(12,2) NOT NULL,
-    category TEXT NOT NULL CHECK (category IN ('needs', 'wants', 'savings')),
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Bills table (recurring payments)
-CREATE TABLE IF NOT EXISTS bills (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    telegram_id BIGINT NOT NULL REFERENCES users(telegram_id) ON DELETE CASCADE,
-    name TEXT NOT NULL,
-    amount DECIMAL(12,2) NOT NULL,
-    due_date INTEGER NOT NULL CHECK (due_date >= 1 AND due_date <= 31),
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Create indexes for faster queries
-CREATE INDEX IF NOT EXISTS idx_expenses_telegram_id ON expenses(telegram_id);
-CREATE INDEX IF NOT EXISTS idx_expenses_created_at ON expenses(created_at);
-CREATE INDEX IF NOT EXISTS idx_expenses_category ON expenses(category);
-CREATE INDEX IF NOT EXISTS idx_bills_telegram_id ON bills(telegram_id);
-
--- Enable Row Level Security (optional but recommended)
-ALTER TABLE users ENABLE ROW LEVEL SECURITY;
-ALTER TABLE expenses ENABLE ROW LEVEL SECURITY;
-ALTER TABLE bills ENABLE ROW LEVEL SECURITY;
-
--- Create policies for service role access
-CREATE POLICY "Service role can do everything on users" ON users
-    FOR ALL USING (true);
-
-CREATE POLICY "Service role can do everything on expenses" ON expenses
-    FOR ALL USING (true);
-
-CREATE POLICY "Service role can do everything on bills" ON bills
-    FOR ALL USING (true);
-```
-
-#### 2.3 Get your Supabase credentials
-
-1. Go to **Project Settings** (gear icon)
-2. Click **API** in the sidebar
-3. Copy:
-   - **Project URL** → `SUPABASE_URL`
-   - **anon public** key → `SUPABASE_KEY`
-
----
-
-### Step 3: Deploy to Render (Free & Easy)
-
-Since Railway has OAuth issues, let's use **Render** instead.
-
-#### 3.1 Push code to GitHub
-
-Using Claude Code in your terminal:
-
-```bash
-# Navigate to your project
-cd budget-bot
-
-# Initialize git
-git init
-
-# Add all files
-git add .
-
-# Commit
-git commit -m "Initial commit: AvecBanker budget bot"
-
-# Create repo on GitHub (or use GitHub CLI)
-# Then add remote and push
-git remote add origin https://github.com/YOUR_USERNAME/avecbanker-bot.git
-git branch -M main
-git push -u origin main
-```
-
-#### 3.2 Deploy on Render
-
-1. Go to [render.com](https://render.com) and sign up (free)
-2. Click **New +** → **Background Worker**
-3. Connect your GitHub account
-4. Select your `avecbanker-bot` repository
-5. Configure:
-   - **Name**: `avecbanker-bot`
-   - **Runtime**: `Python 3`
-   - **Build Command**: `pip install -r requirements.txt`
-   - **Start Command**: `python bot.py`
-
-6. Add **Environment Variables** (click "Advanced"):
-   ```
-   TELEGRAM_BOT_TOKEN = your_new_bot_token
-   SUPABASE_URL = https://your-project.supabase.co
-   SUPABASE_KEY = your_anon_key
-   ```
-
-7. Click **Create Background Worker**
-
----
-
-### Step 4: Test Your Bot
-
-1. Open Telegram
-2. Go to `t.me/avecbanker_bot`
-3. Send `/start`
-4. Follow the setup prompts!
-
----
-
-## 📱 How to Use
-
-### Quick Expense Logging
-
-Just type naturally:
-```
-lunch 150 needs
-grab 80 needs
-coffee 120 wants
-netflix 550 wants
-savings 5000 savings
-```
-
-### Commands
+### Quick Start
 
 | Command | Description |
 |---------|-------------|
-| `/start` | Welcome & quick start |
-| `/setup` | Configure your budget |
-| `/status` | View current spending |
-| `/log` | Log expense with prompts |
-| `/history` | Recent expenses |
-| `/summary` | Monthly breakdown |
-| `/delete` | Remove last expense |
-| `/help` | All commands |
-
-### Categories
-
-- **needs** 🍽️ - Food, transport, utilities, essentials
-- **wants** 🎮 - Entertainment, shopping, treats
-- **savings** 💰 - Money set aside
+| `/start` | Welcome message and quick start guide |
+| `/setup` | Configure income, bills, and budget split |
+| `/help` | Show all available commands |
 
 ---
 
-## 👥 Multi-User Setup (For You & GF)
+### Expense Tracking
 
-The bot automatically supports multiple users! Each person:
+#### Logging Expenses
+Type naturally: `description amount category`
 
-1. Messages the bot on their own Telegram
-2. Runs `/start`
-3. Runs `/setup` to configure their own budget
-4. Has completely separate tracking
+**Categories:**
+- `needs` - Food, transport, essentials
+- `wants` - Entertainment, shopping
+- `savings` - Money set aside
 
-You'll each have your own:
-- Income settings
-- Budget percentages
-- Expense history
-- Reminders
-
----
-
-## 🔔 Automatic Reminders
-
-The bot will remind you:
-
-- **2 days before each bill** at 9 AM
-- **Weekly summary** every Sunday at 9 AM
-
----
-
-## 🛠️ Development (Claude Code)
-
-### Local Testing
-
-```bash
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # or `venv\Scripts\activate` on Windows
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Create .env file
-cp .env.example .env
-# Edit .env with your credentials
-
-# Run locally
-python bot.py
+**Examples:**
+```
+lunch 150 needs
+grab 85 needs
+coffee 180 wants
+netflix 550 wants
+emergency fund 1000 savings
 ```
 
-### Project Structure
+#### Viewing Expenses
+| Command | Description |
+|---------|-------------|
+| `/status` | Current month budget status with progress bars |
+| `/history` | Last 10 expenses |
+| `/summary` | Monthly breakdown by category |
+
+---
+
+### Bank Accounts
+
+#### Commands
+| Command | Description |
+|---------|-------------|
+| `/banks` | View all bank accounts with balances |
+| `/addbank` | Add a new bank account |
+| `/deposit` | Start deposit flow |
+| `/withdraw` | Start withdrawal flow |
+| `/transfer` | Transfer between accounts |
+
+#### Adding a Bank Account
+After `/addbank`, enter:
+```
+BankName Balance Purpose
+```
+
+**Purpose options:** `savings`, `spending`, `allowance`, `emergency`
+
+**Examples:**
+```
+UnionBank 3300 savings
+BPI 10600 spending
+Maya 0 allowance
+GCash 0 allowance
+```
+
+#### Quick Inline Commands
+```
+deposit 5000 BPI          → Deposit P5,000 to BPI
+withdraw 1000 UnionBank   → Withdraw P1,000 from UnionBank
+```
+
+#### Transfers
+After `/transfer`, enter:
+```
+FromBank ToBank Amount
+```
+
+**Example:**
+```
+BPI UnionBank 5000
+```
+
+---
+
+### Credit Cards
+
+#### Commands
+| Command | Description |
+|---------|-------------|
+| `/cc` | View all credit cards with utilization |
+| `/addcc` | Add a new credit card |
+| `/ccpay` | Log a credit card payment |
+
+#### Adding a Credit Card
+After `/addcc`, enter:
+```
+CardName Limit DueDate
+```
+
+**Examples:**
+```
+BDO 50000 15
+Metrobank 100000 25
+```
+
+#### Logging Credit Card Spending
+Quick inline command:
+```
+cc 500 shoes
+cc 1200 groceries
+cc 3500 gadget
+```
+
+#### Paying Credit Card
+After `/ccpay`, enter:
+```
+CardName Amount
+```
+
+**Example:**
+```
+BDO 5000
+```
+
+---
+
+### Goals & Payoff Tracking
+
+#### Commands
+| Command | Description |
+|---------|-------------|
+| `/goals` | View all active goals with progress |
+| `/payoff` | View payoff goals only (filtered) |
+| `/addgoal` | Add a new goal |
+| `/rebalance` | Recalculate goal contributions |
+| `/simulate` | "What if" simulation for new goal |
+
+#### Adding a Goal
+After `/addgoal`, enter:
+```
+Name Type TargetAmount MonthlyPayment TargetDate
+```
+
+**Goal types:**
+- `payoff` - Debt payoff (loans, etc.)
+- `savings` - Emergency fund, vacation fund
+- `purchase` - iPhone, laptop, etc.
+
+**Examples:**
+```
+motorcycle payoff 208000 6500 2024-09-01
+iphone purchase 70000 7200 2024-12-01
+emergency savings 100000 5000
+```
+
+#### Making Goal Payments
+Quick inline command:
+```
+paid motorcycle 6500      → Pay P6,500 to motorcycle
+paid motorcycle           → Pay default monthly amount
+paid emergency 2000       → Add P2,000 to emergency fund
+```
+
+#### Simulating a New Goal
+After `/simulate`, enter:
+```
+Name Amount TargetDate
+```
+
+**Example:**
+```
+iphone 70000 2024-12-01
+```
+Shows impact on existing goals without committing.
+
+---
+
+### Pay Periods (Bi-weekly)
+
+#### Commands
+| Command | Description |
+|---------|-------------|
+| `/payday` | Log payday and start new 14-day period |
+
+#### Starting a Pay Period
+After `/payday`, enter:
+
+**If first time:**
+```
+Income StartDate
+```
+Example: `33040 2024-01-15`
+
+**If continuing:**
+```
+Income
+```
+Example: `33040`
+
+The bot automatically calculates:
+- Daily spending limit
+- Days remaining in period
+
+---
+
+### Dashboard & Reports
+
+#### Commands
+| Command | Description |
+|---------|-------------|
+| `/dashboard` | Full financial overview |
+| `/bills` | Upcoming bills with due dates |
+| `/status` | Current budget status |
+| `/summary` | Monthly expense breakdown |
+
+#### Dashboard Shows:
+- All bank account balances
+- Credit card utilization
+- Current pay period status
+- Payoff goal progress
+- Upcoming bills with urgency indicators
+
+#### Bill Indicators:
+- Red - Due today/tomorrow/3 days
+- Yellow - Due within 7 days
+- Green - Due later
+
+---
+
+### Budget Setup
+
+#### Using `/setup`
+Interactive menu with buttons:
+- **Set Income** - Monthly income in PHP
+- **Set Fixed Bills** - Recurring monthly bills
+- **Set Budget Split** - Percentage allocation
+- **View Current Setup** - See all settings
+
+#### Setting Income
+```
+83000
+```
+Or for hourly USD:
+```
+$7/hr 176hrs
+```
+
+#### Setting Bills
+Enter each bill on a new line:
+```
+motorcycle 6500 7
+insurance 2500 30
+power 2000 28
+internet 1500 15
+```
+
+#### Setting Budget Split
+Enter 4 percentages that total 100:
+```
+needs wants savings extra
+```
+
+**Example:**
+```
+23 7 18 52
+```
+- 23% Needs
+- 7% Wants
+- 18% Savings
+- 52% Extra (goals/payoff)
+
+---
+
+## Quick Reference Card
+
+| Action | Command |
+|--------|---------|
+| Log expense | `lunch 150 needs` |
+| Credit card spend | `cc 500 shoes` |
+| Deposit to bank | `deposit 5000 BPI` |
+| Withdraw from bank | `withdraw 1000 Maya` |
+| Pay toward goal | `paid motorcycle 6500` |
+| See everything | `/dashboard` |
+| Check budget | `/status` |
+| Check bills | `/bills` |
+| Check banks | `/banks` |
+| Check cards | `/cc` |
+| Check goals | `/goals` |
+
+---
+
+## Setup Guide
+
+### 1. Supabase Database
+
+Go to [supabase.com](https://supabase.com), create a project, then run the SQL from `supabase_schema.sql` in the SQL Editor.
+
+### 2. Environment Variables
+
+Set these in your hosting platform:
+```
+TELEGRAM_BOT_TOKEN = your_bot_token
+SUPABASE_URL = https://your-project.supabase.co
+SUPABASE_KEY = your_anon_key
+WEBHOOK_URL = https://your-app-url/webhook
+```
+
+### 3. Deploy
+
+**PythonAnywhere (Recommended):**
+1. Upload files or clone from GitHub
+2. Set environment variables
+3. Configure Flask app with `bot_flask.py`
+4. Set webhook URL
+
+**Local Testing:**
+```bash
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+python bot_flask.py
+```
+
+---
+
+## Project Structure
 
 ```
 budget-bot/
-├── bot.py              # Main bot logic & handlers
+├── bot_flask.py        # Main bot with Flask webhook
 ├── database.py         # Supabase database operations
+├── calculator.py       # Goal calculation logic
+├── notifications.py    # Scheduled reminders (optional)
 ├── config.py           # Configuration settings
 ├── requirements.txt    # Python dependencies
-├── Procfile           # For deployment
-├── .env.example       # Environment template
-├── .gitignore         # Git ignore rules
-└── README.md          # This file
+├── supabase_schema.sql # Database schema
+└── README.md           # This file
 ```
 
 ---
 
-## 🔧 Troubleshooting
+## Multi-User Support
 
-### Bot not responding?
-- Check Render logs for errors
-- Verify environment variables are set
-- Make sure bot token is correct
+Each Telegram user has completely separate:
+- Bank accounts
+- Credit cards
+- Goals
+- Expenses
+- Budget settings
 
-### Database errors?
-- Verify Supabase URL and key
-- Check if tables were created
-- Look at Supabase logs
-
-### Reminders not working?
-- Bot must be running 24/7 (Render handles this)
-- Check timezone is Asia/Manila
-- Verify `reminders_enabled` is true in user settings
+Just have each person message the bot and run `/start`.
 
 ---
 
-## 📝 License
+## License
 
 MIT - Feel free to modify!
-
----
-
-Made with 💙 for taking control of your finances!
