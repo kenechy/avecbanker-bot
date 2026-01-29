@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS bills (
     name TEXT NOT NULL,
     amount DECIMAL(12,2) NOT NULL,
     due_date INTEGER NOT NULL CHECK (due_date >= 1 AND due_date <= 31),
+    is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -54,6 +55,7 @@ CREATE TABLE IF NOT EXISTS bank_accounts (
     bank_name TEXT NOT NULL,
     current_balance DECIMAL(12,2) DEFAULT 0,
     purpose TEXT CHECK (purpose IN ('savings', 'spending', 'allowance', 'emergency')),
+    is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -70,6 +72,7 @@ CREATE TABLE IF NOT EXISTS credit_cards (
     current_balance DECIMAL(12,2) DEFAULT 0,
     statement_date INTEGER CHECK (statement_date >= 1 AND statement_date <= 31),
     due_date INTEGER CHECK (due_date >= 1 AND due_date <= 31),
+    is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 

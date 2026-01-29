@@ -348,6 +348,23 @@ def handle_addbank(chat_id, user_id):
     )
 
 
+def handle_delbank(chat_id, user_id):
+    """Start deleting a bank account"""
+    accounts = db.get_bank_accounts_sync(user_id)
+    if not accounts:
+        send_message(chat_id, "No bank accounts to delete.")
+        return
+
+    user_states[user_id] = "delbank"
+    accounts_list = "\n".join([f"• {a['bank_name']}" for a in accounts])
+    send_message(
+        chat_id,
+        f"🗑️ *Delete Bank Account*\n\n"
+        f"Your accounts:\n{accounts_list}\n\n"
+        f"Enter bank name to delete:"
+    )
+
+
 def handle_deposit(chat_id, user_id, bank_name: str = None, amount: float = None):
     """Handle deposit to bank account"""
     if bank_name and amount:
@@ -459,6 +476,23 @@ def handle_addcc(chat_id, user_id):
         "Example:\n"
         "`BDO 50000 15`\n"
         "`Metrobank 100000 25`"
+    )
+
+
+def handle_delcc(chat_id, user_id):
+    """Start deleting a credit card"""
+    cards = db.get_credit_cards_sync(user_id)
+    if not cards:
+        send_message(chat_id, "No credit cards to delete.")
+        return
+
+    user_states[user_id] = "delcc"
+    cards_list = "\n".join([f"• {c['card_name']}" for c in cards])
+    send_message(
+        chat_id,
+        f"🗑️ *Delete Credit Card*\n\n"
+        f"Your cards:\n{cards_list}\n\n"
+        f"Enter card name to delete:"
     )
 
 
@@ -632,6 +666,40 @@ def handle_addgoal(chat_id, user_id):
         "`motorcycle payoff 208000 6500 2024-09-01`\n"
         "`iphone purchase 70000 7200 2024-12-01`\n"
         "`emergency savings 100000 5000`"
+    )
+
+
+def handle_delgoal(chat_id, user_id):
+    """Start deleting a goal"""
+    goals = db.get_goals_sync(user_id)
+    if not goals:
+        send_message(chat_id, "No goals to delete.")
+        return
+
+    user_states[user_id] = "delgoal"
+    goals_list = "\n".join([f"• {g['name']}" for g in goals])
+    send_message(
+        chat_id,
+        f"🗑️ *Delete Goal*\n\n"
+        f"Your goals:\n{goals_list}\n\n"
+        f"Enter goal name to delete:"
+    )
+
+
+def handle_delbill(chat_id, user_id):
+    """Start deleting a bill"""
+    bills = db.get_bills_sync(user_id)
+    if not bills:
+        send_message(chat_id, "No bills to delete.")
+        return
+
+    user_states[user_id] = "delbill"
+    bills_list = "\n".join([f"• {b['name']}" for b in bills])
+    send_message(
+        chat_id,
+        f"🗑️ *Delete Bill*\n\n"
+        f"Your bills:\n{bills_list}\n\n"
+        f"Enter bill name to delete:"
     )
 
 
@@ -1038,6 +1106,47 @@ def handle_message(chat_id, user_id, text):
         except:
             send_message(chat_id, "❌ Invalid format.")
             return
+
+    # Handle delete states
+    elif state == "delbank":
+        account = db.get_bank_account_by_name_sync(user_id, original_text)
+        if account:
+            db.delete_bank_account_sync(account["id"])
+            user_states.pop(user_id, None)
+            send_message(chat_id, f"✅ Deleted bank account *{account['bank_name']}*")
+        else:
+            send_message(chat_id, f"❌ Bank '{original_text}' not found.")
+        return
+
+    elif state == "delcc":
+        card = db.get_credit_card_by_name_sync(user_id, original_text)
+        if card:
+            db.delete_credit_card_sync(card["id"])
+            user_states.pop(user_id, None)
+            send_message(chat_id, f"✅ Deleted credit card *{card['card_name']}*")
+        else:
+            send_message(chat_id, f"❌ Card '{original_text}' not found.")
+        return
+
+    elif state == "delgoal":
+        goal = db.get_goal_by_name_sync(user_id, original_text)
+        if goal:
+            db.delete_goal_sync(goal["id"])
+            user_states.pop(user_id, None)
+            send_message(chat_id, f"✅ Deleted goal *{goal['name']}*")
+        else:
+            send_message(chat_id, f"❌ Goal '{original_text}' not found.")
+        return
+
+    elif state == "delbill":
+        bill = db.get_bill_by_name_sync(user_id, original_text)
+        if bill:
+            db.delete_bill_sync(bill["id"])
+            user_states.pop(user_id, None)
+            send_message(chat_id, f"✅ Deleted bill *{bill['name']}*")
+        else:
+            send_message(chat_id, f"❌ Bill '{original_text}' not found.")
+        return
 
     # Handle new states
     elif state == "addbank":
@@ -1466,6 +1575,8 @@ def webhook():
                     handle_banks(chat_id, user_id)
                 elif text == "/addbank":
                     handle_addbank(chat_id, user_id)
+                elif text == "/delbank":
+                    handle_delbank(chat_id, user_id)
                 elif text == "/deposit":
                     handle_deposit(chat_id, user_id)
                 elif text == "/withdraw":
@@ -1478,6 +1589,8 @@ def webhook():
                     handle_cc(chat_id, user_id)
                 elif text == "/addcc":
                     handle_addcc(chat_id, user_id)
+                elif text == "/delcc":
+                    handle_delcc(chat_id, user_id)
                 elif text == "/ccpay":
                     handle_ccpay(chat_id, user_id)
 
@@ -1488,6 +1601,10 @@ def webhook():
                     handle_payoff(chat_id, user_id)
                 elif text == "/addgoal":
                     handle_addgoal(chat_id, user_id)
+                elif text == "/delgoal":
+                    handle_delgoal(chat_id, user_id)
+                elif text == "/delbill":
+                    handle_delbill(chat_id, user_id)
                 elif text == "/rebalance":
                     handle_rebalance(chat_id, user_id, username)
                 elif text == "/simulate":

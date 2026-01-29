@@ -121,20 +121,33 @@ class Database:
         return response.data[0] if response.data else bill_data
 
     def get_bills_sync(self, telegram_id: int) -> List[Dict]:
-        """Get all bills for a user"""
+        """Get all active bills for a user"""
         response = (
             self.client.table("bills")
             .select("*")
             .eq("telegram_id", telegram_id)
+            .eq("is_active", True)
             .order("due_date")
             .execute()
         )
         return response.data
 
     def delete_bill_sync(self, bill_id: str) -> bool:
-        """Delete a bill"""
-        response = self.client.table("bills").delete().eq("id", bill_id).execute()
+        """Soft delete a bill"""
+        response = self.client.table("bills").update({"is_active": False}).eq("id", bill_id).execute()
         return len(response.data) > 0
+
+    def get_bill_by_name_sync(self, telegram_id: int, name: str) -> Optional[Dict]:
+        """Get a bill by name (case-insensitive)"""
+        response = (
+            self.client.table("bills")
+            .select("*")
+            .eq("telegram_id", telegram_id)
+            .eq("is_active", True)
+            .ilike("name", name)
+            .execute()
+        )
+        return response.data[0] if response.data else None
 
     def update_bill_sync(self, bill_id: str, data: Dict) -> Dict:
         """Update a bill"""
@@ -156,11 +169,12 @@ class Database:
         return response.data[0] if response.data else account_data
 
     def get_bank_accounts_sync(self, telegram_id: int) -> List[Dict]:
-        """Get all bank accounts for a user"""
+        """Get all active bank accounts for a user"""
         response = (
             self.client.table("bank_accounts")
             .select("*")
             .eq("telegram_id", telegram_id)
+            .eq("is_active", True)
             .order("created_at")
             .execute()
         )
@@ -188,8 +202,8 @@ class Database:
         return response.data[0] if response.data else None
 
     def delete_bank_account_sync(self, account_id: str) -> bool:
-        """Delete a bank account"""
-        response = self.client.table("bank_accounts").delete().eq("id", account_id).execute()
+        """Soft delete a bank account"""
+        response = self.client.table("bank_accounts").update({"is_active": False}).eq("id", account_id).execute()
         return len(response.data) > 0
 
     # ============ CREDIT CARD METHODS ============
@@ -210,11 +224,12 @@ class Database:
         return response.data[0] if response.data else card_data
 
     def get_credit_cards_sync(self, telegram_id: int) -> List[Dict]:
-        """Get all credit cards for a user"""
+        """Get all active credit cards for a user"""
         response = (
             self.client.table("credit_cards")
             .select("*")
             .eq("telegram_id", telegram_id)
+            .eq("is_active", True)
             .order("created_at")
             .execute()
         )
@@ -242,8 +257,8 @@ class Database:
         return response.data[0] if response.data else None
 
     def delete_credit_card_sync(self, card_id: str) -> bool:
-        """Delete a credit card"""
-        response = self.client.table("credit_cards").delete().eq("id", card_id).execute()
+        """Soft delete a credit card"""
+        response = self.client.table("credit_cards").update({"is_active": False}).eq("id", card_id).execute()
         return len(response.data) > 0
 
     # ============ SAVINGS/PAYOFF GOAL METHODS ============
