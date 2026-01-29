@@ -517,6 +517,21 @@ def handle_ccspend(chat_id, user_id, card_name: str, amount: float, description:
 
 # ============ GOALS & PAYOFF HANDLERS ============
 
+def calculate_required_monthly(remaining: float, target_date_str: str) -> float:
+    """Calculate required monthly payment to meet target date"""
+    if not target_date_str or remaining <= 0:
+        return 0
+    try:
+        target_date = datetime.strptime(str(target_date_str), "%Y-%m-%d").date()
+        today = datetime.now().date()
+        months = (target_date.year - today.year) * 12 + (target_date.month - today.month)
+        if months <= 0:
+            months = 1
+        return remaining / months
+    except (ValueError, TypeError):
+        return 0
+
+
 def handle_goals(chat_id, user_id):
     """Show all active goals"""
     goals = db.get_goals_sync(user_id)
@@ -530,21 +545,34 @@ def handle_goals(chat_id, user_id):
     for g in goals:
         current = g.get("current_amount", 0)
         target = g.get("target_amount", 0)
+        remaining = target - current
         progress = (current / target * 100) if target > 0 else 0
         monthly = g.get("monthly_contribution", 0)
         goal_type = g.get("goal_type", "savings")
         priority = g.get("priority", 1)
+        target_date = g.get("target_date")
 
         type_emoji = {"payoff": "🏍️", "savings": "💰", "purchase": "🛒"}.get(goal_type, "🎯")
 
         msg += f"{type_emoji} *{g['name']}* (P{priority})\n"
         msg += f"{get_progress_bar(progress, 10)} {progress:.0f}%\n"
         msg += f"{format_currency(current)} / {format_currency(target)}\n"
+        msg += f"Remaining: {format_currency(remaining)}\n"
+
+        if target_date:
+            required = calculate_required_monthly(remaining, target_date)
+            msg += f"🎯 Target: {target_date}\n"
+            msg += f"📅 Need: {format_currency(required)}/month to meet target\n"
+
         if monthly > 0:
-            msg += f"📅 Monthly: {format_currency(monthly)}\n"
-        if g.get("target_date"):
-            msg += f"🎯 Target: {g['target_date']}\n"
+            months_left = remaining / monthly if monthly > 0 else 0
+            msg += f"💵 Set: {format_currency(monthly)}/month ({months_left:.1f} months)\n"
+
         msg += "\n"
+
+    msg += "━━━━━━━━━━━━━━━━━━━━\n"
+    msg += "💡 Log payment: `paid goalname amount`\n"
+    msg += "Example: `paid motorcycle 6500`"
 
     send_message(chat_id, msg)
 
@@ -566,20 +594,27 @@ def handle_payoff(chat_id, user_id):
         remaining = target - current
         progress = (current / target * 100) if target > 0 else 0
         monthly = g.get("monthly_contribution", 0)
+        target_date = g.get("target_date")
 
         msg += f"*{g['name']}*\n"
         msg += f"{'█' * int(progress / 10)}{'░' * (10 - int(progress / 10))} {progress:.0f}%\n"
         msg += f"{format_currency(current)} / {format_currency(target)}\n"
         msg += f"Remaining: {format_currency(remaining)}\n"
 
+        if target_date:
+            required = calculate_required_monthly(remaining, target_date)
+            msg += f"🎯 Target: {target_date}\n"
+            msg += f"📅 Need: {format_currency(required)}/month to meet target\n"
+
         if monthly > 0:
             months_left = remaining / monthly if monthly > 0 else 0
-            msg += f"📅 At {format_currency(monthly)}/month: {months_left:.1f} months\n"
-
-        if g.get("target_date"):
-            msg += f"🎯 Target: {g['target_date']}\n"
+            msg += f"💵 Set: {format_currency(monthly)}/month ({months_left:.1f} months)\n"
 
         msg += "\n"
+
+    msg += "━━━━━━━━━━━━━━━━━━━━\n"
+    msg += "💡 Log payment: `paid goalname amount`\n"
+    msg += "Example: `paid motorcycle 6500`"
 
     send_message(chat_id, msg)
 
