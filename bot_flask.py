@@ -920,10 +920,24 @@ def handle_callback(callback_id, chat_id, message_id, user_id, data):
         )
 
 
+def handle_cancel(chat_id, user_id):
+    """Cancel current operation"""
+    state = user_states.pop(user_id, None)
+    if state:
+        send_message(chat_id, "Cancelled.")
+    else:
+        send_message(chat_id, "Nothing to cancel.")
+
+
 def handle_message(chat_id, user_id, text):
     """Handle text messages"""
     original_text = text.strip()
     text = original_text.lower()
+
+    # Check for cancel
+    if text in ["cancel", "/cancel", "exit", "quit", "back"]:
+        handle_cancel(chat_id, user_id)
+        return
 
     # Check setup wizard state
     state = user_states.get(user_id)
@@ -1453,6 +1467,8 @@ def webhook():
                     handle_dashboard(chat_id, user_id, username)
                 elif text == "/bills":
                     handle_bills(chat_id, user_id)
+                elif text == "/cancel":
+                    handle_cancel(chat_id, user_id)
 
                 # Handle non-command messages
                 elif not text.startswith("/"):
