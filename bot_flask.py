@@ -348,7 +348,8 @@ def handle_callback(callback_id, chat_id, message_id, user_id, data):
 
 def handle_message(chat_id, user_id, text):
     """Handle text messages"""
-    text = text.strip().lower()
+    original_text = text.strip()
+    text = original_text.lower()
 
     # Check setup wizard state
     state = user_states.get(user_id)
@@ -368,7 +369,8 @@ def handle_message(chat_id, user_id, text):
 
             send_message(chat_id, f"✅ Monthly income set to {format_currency(income)}")
             return
-        except:
+        except Exception as e:
+            logger.error(f"Income parse error: {e}")
             send_message(chat_id, "❌ Invalid format. Try again.")
             return
 
@@ -388,7 +390,8 @@ def handle_message(chat_id, user_id, text):
             user_states.pop(user_id, None)
             send_message(chat_id, f"✅ Added {count} bill(s)!")
             return
-        except:
+        except Exception as e:
+            logger.error(f"Bills parse error: {e}")
             send_message(chat_id, "❌ Invalid format. Try again.")
             return
 
@@ -414,53 +417,66 @@ def handle_message(chat_id, user_id, text):
             return
 
     # Try to parse as expense
-    try:
-        parts = text.split()
-        if len(parts) >= 3:
-            category = parts[-1]
-            amount = float(parts[-2].replace(",", "").replace("₱", ""))
-            description = " ".join(parts[:-2])
+    parts = text.split()
+    if len(parts) >= 3:
+        category = parts[-1]
 
-            if category in ["needs", "wants", "savings"]:
+        # Check if valid category
+        if category in ["needs", "wants", "savings"]:
+            try:
+                amount = float(parts[-2].replace(",", "").replace("₱", ""))
+                description = " ".join(parts[:-2])
+
+                # Add the expense
                 db.add_expense_sync(user_id, description, amount, category)
+                logger.info(f"Added expense: {description} {amount} {category} for user {user_id}")
 
-                # Get budget status
-                user = db.get_user_sync(user_id)
-                now = datetime.now()
-                month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-                expenses = db.get_expenses_sync(user_id, month_start)
+                # Try to get budget status for response
+                try:
+                    user = db.get_user_sync(user_id)
+                    now = datetime.now()
+                    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+                    expenses = db.get_expenses_sync(user_id, month_start)
 
-                income = user.get("monthly_income", 0) if user else 0
-                bills = db.get_bills_sync(user_id)
-                total_bills = sum(b["amount"] for b in bills)
-                available = income - total_bills
+                    income = user.get("monthly_income", 0) if user else 0
+                    bills = db.get_bills_sync(user_id)
+                    total_bills = sum(b["amount"] for b in bills)
+                    available = income - total_bills
 
-                if category == "needs":
-                    budget = available * (user.get("needs_pct", 40) if user else 40) / 100
-                    spent = sum(e["amount"] for e in expenses if e["category"] == "needs")
-                elif category == "wants":
-                    budget = available * (user.get("wants_pct", 20) if user else 20) / 100
-                    spent = sum(e["amount"] for e in expenses if e["category"] == "wants")
-                else:
-                    budget = available * (user.get("savings_pct", 15) if user else 15) / 100
-                    spent = sum(e["amount"] for e in expenses if e["category"] == "savings")
+                    if category == "needs":
+                        budget = available * (user.get("needs_pct", 40) if user else 40) / 100
+                        spent = sum(e["amount"] for e in expenses if e["category"] == "needs")
+                    elif category == "wants":
+                        budget = available * (user.get("wants_pct", 20) if user else 20) / 100
+                        spent = sum(e["amount"] for e in expenses if e["category"] == "wants")
+                    else:
+                        budget = available * (user.get("savings_pct", 15) if user else 15) / 100
+                        spent = sum(e["amount"] for e in expenses if e["category"] == "savings")
 
-                remaining = budget - spent
-                pct = (spent / budget * 100) if budget > 0 else 0
+                    remaining = budget - spent
+                    pct = (spent / budget * 100) if budget > 0 else 0
 
-                emoji = {"needs": "🍽️", "wants": "🎮", "savings": "💰"}[category]
+                    emoji = {"needs": "🍽️", "wants": "🎮", "savings": "💰"}[category]
 
-                response = f"✅ {emoji} {description.title()}: {format_currency(amount)}\n"
-                response += f"{get_progress_bar(pct)} {pct:.0f}%\n"
-                response += f"Remaining: {format_currency(remaining)}"
+                    response = f"✅ {emoji} {description.title()}: {format_currency(amount)}\n"
+                    response += f"{get_progress_bar(pct)} {pct:.0f}%\n"
+                    response += f"Remaining: {format_currency(remaining)}"
 
-                if pct >= 90:
-                    response += "\n🚨 *Budget almost gone!*"
+                    if pct >= 90:
+                        response += "\n🚨 *Budget almost gone!*"
 
-                send_message(chat_id, response)
+                    send_message(chat_id, response)
+                except Exception as e:
+                    # Budget calculation failed, but expense was added
+                    logger.error(f"Budget calc error: {e}")
+                    emoji = {"needs": "🍽️", "wants": "🎮", "savings": "💰"}[category]
+                    send_message(chat_id, f"✅ {emoji} {description.title()}: {format_currency(amount)} logged!")
+
                 return
-    except:
-        pass
+
+            except ValueError as e:
+                logger.error(f"Expense parse error: {e} for text: {text}")
+                # Fall through to help message
 
     send_message(
         chat_id,
